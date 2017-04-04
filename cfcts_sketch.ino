@@ -1,29 +1,30 @@
 #include <SoftwareSerial.h> // MG2639 Lib uses SS Library
 #include "Adafruit_FONA.h"  // Cell shield library include
+//#include "FirebaseArduino.h" // firebase library include - unstable, does not work
 
 // adafruit FONA standard output PINs
 #define FONA_RX 2
 #define FONA_TX 3
 #define FONA_RST 4 
 
-SoftwareSerial fonaSS = SoftwareSerial(Fona_TX, Fona_RX); // init the address 
-SoftwareSerial *fonaPtr = &fonaSS; // I'll have to look into this, this is from the test method
+#define FIREBASE_HOST "https://myfirstmapboxapp-11599.firebaseio.com/"
+#define FIREBASE_AUTH "token_or_secret"
+#define WIFI_SSID "SSID"
+#define WIFI_PASSWORD "PASSWORD"
+
+SoftwareSerial fonaSS = SoftwareSerial(FONA_TX, FONA_RX); // init the address 
+SoftwareSerial *fonaSerial = &fonaSS; // I'll have to look into this, this is from the test method
 
 // Interrupt pin Initilization 
 const int HALT_PIN = 13; // 1 raises a HALT status in flight controller
 
-// Local stored IP address
-IPAddress myIP; 
-
-// Firebase server information
-IPAddress fireIP; // IP address of the file server
-const char server[] = "some_firebase_site.com" 
-
 //device init
 Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
 
-//opt: serial device init
-//  HardwareSerial *fonaSerial = &Serial1;
+char url[80] = "https://myfirstmapboxapp-11599.firebaseio.com/"; // url for our firebase server
+
+//position data variables
+float latitude, longitude, speed_kph, heading, speed_mph, altitude;
 
 void setup() {
 
@@ -32,95 +33,40 @@ void setup() {
 
   //Init network serial communications
   //Serial.begin(9600); // 9600 baud - try if 115200 does not work
-
   Serial.begin(115200); // this is the standard baud for our cell shield
   
   // set up interrupt pin
   pinMode(HALT_PIN, OUTPUT); 
 
-  ///////////////////////////// BEGIN ARDUINO NETWORK SETUP //////////////////////////////
+  ///////////////////////////// BEGIN ADAFRUIT FONA NET SETUP //////////////////////////////
 
-  // halt exec of program until some value over serial link
-  // avoid using data unless we need to waste it!
-  // serialTrigger(); 
-
-  // turn module on, verify communication (4800 baud)
-  fonaPtr->begin(4800);
-  while (!fona.begin(*fonaSerial)){
-    Serial.print(F("\nUnable to communicate with shield. Retrying"))
-    delay(300);
-    Serial.print(F("."));
-    delay(300);
-    Serial.print(F("."));
-    delay(300);
-    Serial.print(F(".\n"));
-    //retry
+  fonaSerial->begin(4800);
+  if (! fona.begin(*fonaSerial)) {
+    Serial.println(F("Couldn't find FONA"));
+    while(1);
   }
+  Serial.println(F("FONA is OK"));
+  // Try to enable GPRS
 
-  // enable GPRS, call before doing any TCP/2G transmissons
-  
-  while (! fona.enableGPRS(true)){
-    Serial.print(F("\nUnable to open GPRS. Retrying"))
-    delay(300);
-    Serial.print(F("."));
-    delay(300);
-    Serial.print(F("."));
-    delay(300);
-    Serial.print(F(".\n"));
-    //retry
-  } 
-
-  // start FONA GPS device
+  Serial.println(F("Enabling GPS..."));
   fona.enableGPS(true);
-  Serial.print(F("Fona GPS started..."));
 
-  //init local IP
-  myIP = fona.localIP();
-  Serial.print(F("Local IP Address: "));
-  Serial.println(myIP);
+  // Optionally configure a GPRS APN, username, and password.
+  // You might need to do this to access your network's GPRS/data
+  // network.  Contact your provider for the exact APN, username,
+  // and password values.  Username and password are optional and
+  // can be removed, but APN is required.
+  //fona.setGPRSNetworkSettings(F("your APN"), F("your username"), F("your password"));
 
-  // perform DNS lookup of domain, IP
-  int DNS_Status = gprs.hostByName(server, &serverIP);
-  while (DNS_Status <= 0){
-    Serial.println(F("Couldn't find the server IP. Retrying"));
-    delay(300);
-    Serial.print(F("."));
-    delay(300);
-    Serial.print(F("."));
-    delay(300);
-    Serial.print(F(".\n"));
-    //retry 
-    DNS_Status = gprs.hostByName(server, &serverIP);
-  }
-  Serial.print(F("Server IP is: "));
-  Serial.println(serverIP);
-
-  // establish TCP connection to host with previous connection info
-  int connect_Status = gprs.connect(serverIP, 80); // 80 is standard HTTP port
-
-  while (connect_Status <= 0){
-    Serial.println(F("Unable to connect. Retrying"))
-    delay(300);
-    Serial.print(F("."));
-    delay(300);
-    Serial.print(F("."));
-    delay(300);
-    Serial.print(F(".\n"));
-    //retry   
-    connect_Status = gprs.connect(serverIP, 80);
- }
-
-  Serial.println(F("Successful connection! Sending HTTP GET Request"));
-  Serial.println();
-
-  // HTTP TEST 
-  gprs.print("GET / HTTP/1.1\nHost: example.com\n\n");
+  // Optionally configure HTTP gets to follow redirects over SSL.
+  // Default is not to follow SSL redirects, however if you uncomment
+  // the following line then redirects over SSL will be followed.
+  //fona.setHTTPSRedirect(true);
 
   // Copy this block down to loop if experiencing networking issues /////
   /////////////////// END DEBUG NETWORK METHODS /////////////////////////
 
-
-  //////////////////////////// END ARDUINO NETWORK SETUP ////////////////////////////////
+  //////////////////////////// END ADAFRUIT FONA NET SETUP ////////////////////////////////
 
   //////////////////////////// BEGIN FIREBASE CONNECTION SETUP //////////////////////////
 
@@ -134,23 +80,36 @@ void loop() {
 
 /////////////PART 0: Server down, connection off////////
 //Display, allow some sort of error message? - TESTING
-if (!gprs.available()){
-    Serial.println("Error! No bytes let from server!");
-  }
+
 
 
 /////////////PART 1: Map Analysis///////////////////////
 //Determine WHERE you are, cast a ray to determine WHERE you will be
+
+if (fona.getGPS(&latitude, &longitude, &speed_kph, &heading, &altitude)){
+  
+    Serial.print("GPS lat:");
+    Serial.println(latitude, 6);
+    Serial.print("GPS long:");
+    Serial.println(longitude, 6);
+    Serial.print("GPS speed KPH:");
+    Serial.println(speed_kph);
+    Serial.print("GPS speed MPH:");
+    speed_mph = speed_kph * 0.621371192;
+    Serial.println(speed_mph);
+    Serial.print("GPS heading:");
+    Serial.println(heading);
+    Serial.print("GPS altitude:");
+    Serial.println(altitude);
+  } else {
+    Serial.println("Waiting for FONA GPS 3D fix...");
+    delay(30);
+  }
+
 
 /////////////PART 2: Decision Making: NFZ///////////////
 //Implement No-fly zone logic, prevent flight in the forward direction
 
 /////////////PART 3: Update and sync data///////////////
 //Upload current map data to the server, change NFZ as necessary
-}
-
-void serialTrigger() {
-  Serial.println("Sending serial to start:");
-  while (!Serial.available());
-  Serial.read();  
 }
