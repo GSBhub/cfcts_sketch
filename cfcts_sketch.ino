@@ -173,7 +173,7 @@ if (fona.getGPS(&latitude, &longitude, &speed_kph, &heading, &altitude)){
      if (inNFZ) {
       
         Serial.println("Detected entry into no-fly zone!"); 
-        //HALT_PIN = 1; // send Return to sender signal to server
+        analogWrite(HALT_PIN, 128); // send Return to sender signal to server (128 is a test PWM for now)
         while(1);
      }
 
