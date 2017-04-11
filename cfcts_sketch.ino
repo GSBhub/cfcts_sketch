@@ -1,23 +1,23 @@
-
-
 #include <SoftwareSerial.h> // MG2639 Lib uses SS Library
-#include <ESP8266wifi.h> // creating a frankenstein monster using ESP8266 wifi methods
+//#include <ESP8266WiFi.h>
+//#include <FirebaseArduino.h>
 #include "Adafruit_FONA.h"  // Cell shield library include
-#include "FirebaseArduino.h" // firebase library include - REQUIRES ESP8266 - DOES NOT WORK
 
 // Interrupt pin Initilization 
-#define HALT_PIN = 13; // 1 raises a HALT status in flight controller
+#define HALT_PIN 13 // 1 raises a HALT status in flight controller
 
 // adafruit FONA standard output PINs
-#define FONA_RX 2
-#define FONA_TX 3
+#define FONA_RX 3
+#define FONA_TX 2
 #define FONA_RST 4
  
 #define FIREBASE_HOST "myfirstmapboxapp-11599.firebaseio.com"
 #define FIREBASE_AUTH "jdi5ilRiQjD1QkT2zENBBOpex53NhqKBPyCNkMKO"
 
-SoftwareSerial fonaSS = SoftwareSerial(FONA_TX, FONA_RX); // init the address 
-SoftwareSerial *fonaSerial = &fonaSS; // I'll have to look into this, this is from the test method
+SoftwareSerial fonaSerial = SoftwareSerial(FONA_TX, FONA_RX); // init the address 
+//SoftwareSerial *fonaSerial = &fonaSS; // I'll have to look into this, this is from the test method
+
+//HardwareSerial *fonaSerial = &Serial1;
 
 //device init
 Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
@@ -26,25 +26,30 @@ Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
 float latitude, longitude, speed_kph, heading, speed_mph, altitude;
 
 //device ID information
-char sim_id[21]; 
-char metadata_path[30];
+String metadata_path;
 
 void setup() {
 
+  Serial.println("Attempting to start serial communications...");
+
+  Serial.begin(115200); // this is the standard baud for our cell shield
+
   // halt until serial up (active wait) -> could be passive, potentially
-  while (! Serial);
+   while (! Serial); // really, this seems to break it for some stupid reason
+
+  Serial.println("Serial communicaitons started.");
 
   //Init network serial communications
-  //Serial.begin(9600); // 9600 baud - try if 115200 does not work
-  Serial.begin(115200); // this is the standard baud for our cell shield
-  
   // set up interrupt pin
-  pinMode(HALT_PIN, OUTPUT); 
+//  pinMode(HALT_PIN, OUTPUT); 
 
   ///////////////////////////// BEGIN ADAFRUIT FONA NET SETUP //////////////////////////////
 
-  fonaSerial->begin(4800);
-  if (! fona.begin(*fonaSerial)) {
+  Serial.println("Attempting to start the FONA...");
+
+  fonaSerial.begin(9600); 
+  
+  if (! fona.begin(fonaSerial)) {
     Serial.println(F("Couldn't find FONA"));
     while(1);
   }
@@ -73,33 +78,43 @@ void setup() {
 
   //////////////////////////// BEGIN DEVICE ID SETUP //////////////////////////
 
+  char sim_id[21];
+
   // read the CCID (used w/ server to pull unique device ID information, potentially)
   fona.getSIMCCID(sim_id);  // make sure sim_id is at least 21 bytes!
+
+  //String sim_id[21] = sim_temp_id ;
+  
   Serial.print(F("SIM CCID = ")); Serial.println(sim_id);
 
   ///////////////////////////// END DEVICE ID SETUP ///////////////////////////
 
+/**
   //////////////////////////// BEGIN FIREBASE CONNECTION SETUP //////////////////////////
 
   // connect to Firebase
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
 
-  char path[50] = "UserInfo/" + sim_id;
+  String path;
+  path.concat("UserInfo/");
+  path.concat(sim_id) ;
 
   // check if SIMCCID is associtaed with an existing firebase identifier
   if (Firebase.getString(path)){
-      char drone_name[20] = Firebase.getString(path);
+      String drone_name = Firebase.getString(path);
       Serial.print("UAS name found! \nName:");
       Serial.print(drone_name + "\n");
-      metadata_path = "GeoFire/" + drone_name;
+      metadata_path.concat( "GeoFire/" );
+      metadata_path.concat( drone_name );
     }
    else {
-     Serial.print("No UAS associated with SIM " + sim_id ".");
+     Serial.print("No UAS associated with SIM ");
+     Serial.print(sim_id);
      while(1); 
    }
 
   Serial.println("Connection to Firebase successful!"); 
-
+*/
   ///////////////////////////// END FIREBASE CONNECTION SETUP ///////////////////////////
 
   
@@ -107,13 +122,15 @@ void setup() {
  
 void loop() {
 
+/**
 /////////////PART 0: Server down, connection off////////
 //Display, allow some sort of error message? - TESTING
 
 if (Firebase.failed()){
-    Serial.print("Connection error with Firebase:")
+    Serial.print("Connection error with Firebase:");
     Serial.println(Firebase.error());  
 }
+*/
 
 /////////////PART 1: Location update///////////////////////
 //Determine WHERE you are
@@ -133,7 +150,7 @@ if (fona.getGPS(&latitude, &longitude, &speed_kph, &heading, &altitude)){
     Serial.println(heading);
     Serial.print("GPS altitude:");
     Serial.println(altitude);
-
+/**
 /////////////PART 2: Update server location///////////////
 //Use firebase to send locational information to server
 
@@ -145,6 +162,9 @@ if (fona.getGPS(&latitude, &longitude, &speed_kph, &heading, &altitude)){
       Serial.print("Error sending location to firebase:");
       Serial.println(Firebase.error());    
     }
+*/
+
+  String NFZ = ""; // Hardcoded NFZ from firebase, cannot access firebase
 
 /////////////PART 3: Decision Making: NFZ///////////////
 //Implement No-fly zone logic, prevent flight in the forward direction
@@ -153,7 +173,8 @@ if (fona.getGPS(&latitude, &longitude, &speed_kph, &heading, &altitude)){
      if (inNFZ) {
       
         Serial.println("Detected entry into no-fly zone!"); 
-        HALT_PIN = 1; // send Return to sender signal to server
+        //HALT_PIN = 1; // send Return to sender signal to server
+        while(1);
      }
 
      delay(6000);// wait for a few seconds
@@ -206,3 +227,4 @@ String getValue(String data, char separator, int index)
 
   return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
+
